@@ -22,6 +22,7 @@ from audiomentations import (
     Shift,
     TimeStretch,
 )
+from audiomentations.core.transforms_interface import BaseWaveformTransform
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,7 +55,6 @@ SINGLE_TRANSFORMS = {
     ),
 }
 
-# Combination sizes to generate
 COMBO_SIZES = [2, 3, 4, 5]
 
 
@@ -153,7 +153,7 @@ def generate_mfcc(start_dir: Path) -> None:
                 plt.figure(figsize=(10, 5))
                 librosa.display.specshow(mfccs, x_axis="time")
                 plt.colorbar()
-                plt.title(f"MFCC - {command} - {start_dir.stem} - {number}")
+                plt.title(f"MFCC - {file.stem}")
                 plt.xlabel("Time")
                 plt.ylabel("MFCC Coefficients")
                 plt.savefig(figures_dir / f"{command}_{number}.png")
@@ -162,10 +162,77 @@ def generate_mfcc(start_dir: Path) -> None:
                 # np.save(figures_dir / f"{command}_{number}.npy", features)
 
 
+def _build_combo_transforms() -> dict[str, Compose]:
+    combo_transforms = {}
+    keys = list(SINGLE_TRANSFORMS.keys())
+
+    for size in COMBO_SIZES:
+        for combo_keys in combinations(keys, size):  # all combinations
+            name = "+".join(combo_keys)
+            transforms = [SINGLE_TRANSFORMS[k] for k in combo_keys]
+            combo_transforms[name] = Compose(transforms)
+
+    return combo_transforms
+
+
+def _apply_and_save(
+    samples: np.ndarray,
+    sample_rate: int,
+    transform,
+    out_path: Path,
+) -> None:
+    """Apply one transform and save the resulting .wav file."""
+    try:
+        augmented = transform(
+            samples=samples.astype(np.float32), sample_rate=sample_rate
+        )
+        sf.write(out_path, augmented, sample_rate)
+    except Exception as e:
+        logging.warning(f"  Transform failed for {out_path.name}: {e}")
+
+
+def augment_audio() -> None:
+    """
+    For every source file produce:
+      - one .wav per single transform
+      - one .wav per combination of transforms (sizes 2–5)
+    Output structure: augmented/<command>/<command>_<its number>_<transform_name>.wav
+    """
+    AUG_DIR.mkdir(parents=True, exist_ok=True)
+
+    all_transforms: dict[str, BaseWaveformTransform | Compose] = {}
+    all_transforms.update(SINGLE_TRANSFORMS)
+    all_transforms.update(_build_combo_transforms())
+
+    logging.info(f"Total transform variants to apply per file: {len(all_transforms)}")
+
+    for command in COMMANDS_TO_PROCESS:
+        out_dir = AUG_DIR / command
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        source_files = list((DATA_DIR / command).iterdir())[:5]
+        logging.info(
+            f"Augmenting {command}: {len(source_files)} files × {len(all_transforms)} transforms"
+        )
+
+        for idx, item in enumerate(source_files):
+            if not item.is_file():
+                continue
+
+            samples, sample_rate = sf.read(item)
+
+            for transform_name, transform in all_transforms.items():
+                out_path = out_dir / f"{command}_{idx}_{transform_name}.wav"
+                if out_path.exists():
+                    continue  # skip already-generated files on re-runs
+                _apply_and_save(samples, sample_rate, transform, out_path)
+                # TODO: MFCC to npy after
+
+        logging.info(f"  Done: {command}")
+
+
 def main():
-    # load_dataset()
-    generate_mfcc(DATA_DIR)
-    augment_in_lib()
+    augment_audio()
     generate_mfcc(AUG_DIR)
 
 
