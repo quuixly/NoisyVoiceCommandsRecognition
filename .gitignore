@@ -1,5 +1,6 @@
 data/
 mfcc/
+augmented/
 
 
 # Byte-compiled / optimized / DLL files
