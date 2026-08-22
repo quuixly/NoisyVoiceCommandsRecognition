@@ -73,20 +73,47 @@ class FeatureExtractor:
     def _split_array_path(self, split: str) -> Path:
         return self.features_dir / f"{split}.npy"
 
+    def _marker_path(self, split: str) -> Path:
+        # Presence of this file (not the .npy's shape) is the "complete" signal —
+        # open_memmap writes the full-shape header up front, so a shape/dtype
+        # match alone can't tell a fully-written array from a zero-filled one
+        # left by an interrupted run.
+        return self.features_dir / f"{split}.npy.done"
+
     def _open_or_create_split_array(self, split: str, n_rows: int) -> tuple[Path, bool]:
-        """Returns (path, already_complete) — skips re-extraction if the split
-        array already exists with the exact shape/dtype this run expects."""
+        """Returns (path, already_complete) — skips re-extraction only if both
+        the array and its completion marker exist and the shape/dtype match."""
         path = self._split_array_path(split)
+        marker = self._marker_path(split)
         expected_shape = (n_rows, *FEATURE_SHAPE)
-        if path.exists():
+        if path.exists() and marker.exists():
             try:
                 existing = np.load(path, mmap_mode="r")
                 if existing.shape == expected_shape and existing.dtype == np.float32:
                     return path, True
             except Exception:
-                pass  # corrupt/partial file from an interrupted run — recreate it
+                pass  # corrupt file from an interrupted run — fall through and recreate
+
+        path.unlink(missing_ok=True)
+        marker.unlink(missing_ok=True)
         np.lib.format.open_memmap(path, mode="w+", dtype=np.float32, shape=expected_shape)
         return path, False
+
+    def _finalize_split_array(self, split: str, n_succeeded: int, n_expected: int) -> None:
+        """Writes the completion marker only if every row succeeded; deletes
+        the array otherwise so a crashed/partial run gets fully regenerated
+        next time instead of silently reused with zero-filled rows."""
+        path = self._split_array_path(split)
+        marker = self._marker_path(split)
+        if n_succeeded < n_expected:
+            logging.error(
+                f"Split '{split}' incomplete ({n_succeeded}/{n_expected}) — "
+                f"deleting {path}, next run will regenerate it"
+            )
+            path.unlink(missing_ok=True)
+            marker.unlink(missing_ok=True)
+        else:
+            marker.write_text(str(n_expected))
 
     def extract_all(self, rows: list[dict]) -> list[dict]:
         missing_split = [r for r in rows if not r.get("split")]
@@ -105,6 +132,7 @@ class FeatureExtractor:
 
         task_rows: list[dict] = []
         task_args: list[tuple[str, str, int]] = []
+        incomplete_splits: dict[str, int] = {}  # split -> n_rows, only splits (re)extracted this run
         for split, split_rows in rows_by_split.items():
             path, already_complete = self._open_or_create_split_array(split, len(split_rows))
             for idx_in_split, row in enumerate(split_rows):
@@ -115,6 +143,8 @@ class FeatureExtractor:
                     task_args.append((row["file_path"], str(path), idx_in_split))
             if already_complete:
                 logging.info(f"Split '{split}' features already packed, skipping ({len(split_rows)} rows)")
+            else:
+                incomplete_splits[split] = len(split_rows)
 
         if task_args:
             if self.n_jobs > 1:
@@ -126,12 +156,20 @@ class FeatureExtractor:
             results = []
 
         n_errors = 0
+        succeeded_by_split: dict[str, int] = defaultdict(int)
         for row, error in zip(task_rows, results):
             if error is not None:
                 n_errors += 1
                 row["feature_path"] = ""
                 row["feature_idx"] = ""
                 logging.error(f"Feature extraction failed for {row['file_path']}:\n{error}")
+            else:
+                succeeded_by_split[row["split"]] += 1
+
+        # Only finalize splits we actually touched this run — an already-complete
+        # split has no entry in succeeded_by_split and must not be re-evaluated.
+        for split, n_expected in incomplete_splits.items():
+            self._finalize_split_array(split, succeeded_by_split[split], n_expected)
 
         logging.info(f"Feature extraction complete: {len(rows) - n_errors}/{len(rows)} succeeded")
         return rows

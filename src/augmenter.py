@@ -117,7 +117,12 @@ class Augmenter:
                 if not item.is_file():
                     continue
 
-                samples, sample_rate = sf.read(item)
+                try:
+                    samples, sample_rate = sf.read(item)
+                except Exception as e:
+                    logging.warning(f"Skipping unreadable source {item}: {e}")
+                    continue  # no raw manifest row either -> no dangling group_id
+
                 generated_paths: list[Path] = []
                 # command is prefixed because idx resets to 0 for every command
                 group_id = f"{command}_{idx:03d}"

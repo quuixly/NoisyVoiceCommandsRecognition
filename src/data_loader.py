@@ -29,10 +29,7 @@ class DatasetLoader:
     def clear_cache(self, cache_dir: Path) -> None:
         try:
             shutil.rmtree(cache_dir)
-            logging.info("Base cache was cleared successfully")
-            dataset_base_dir = cache_dir.parent.parent
-            if dataset_base_dir.exists():
-                shutil.rmtree(dataset_base_dir)
+            logging.info(f"Cleared kagglehub cache dir: {cache_dir}")
         except Exception as e:
             logging.warning(f"Could not clear the cache automatically. {e}")
 

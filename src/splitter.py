@@ -28,8 +28,19 @@ def assign_splits(
         rng.shuffle(groups)
 
         n = len(groups)
-        n_train = int(n * train_ratio)
-        n_val = int(n * val_ratio)
+        if n < 3:
+            raise ValueError(
+                f"Command '{command}': only {n} group(s) available — need at least 3 "
+                "(one per train/val/test). Increase sources_per_command."
+            )
+
+        # round() instead of int()-floor: floor sends every remainder to test and
+        # can zero out val/test entirely at small n (e.g. n=5, val_ratio=0.15 -> 0).
+        # The rebalance below still guarantees >=1 group in every split.
+        n_train = max(1, round(n * train_ratio))
+        n_val = max(1, round(n * val_ratio))
+        if n_train + n_val > n - 1:
+            n_train, n_val = n - 2, 1
 
         for g in groups[:n_train]:
             split_by_group[g] = "train"

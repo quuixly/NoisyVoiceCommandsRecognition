@@ -6,17 +6,6 @@ Bachelor's thesis project: automatic recognition of voice commands (`up`, `down`
 Currently a data pipeline — audio download, augmentation, MFCC feature extraction, and
 `DataLoader`-ready output. Model training is not implemented yet.
 
-## Getting started
-
-```bash
-git clone git@github.com:quuixly/NoisyVoiceCommandsRecognition.git
-cd NoisyVoiceCommandsRecognition
-uv sync
-```
-
-`uv` manages the virtualenv; you don't need to activate it manually as long as you run
-things through `uv run`.
-
 ### Run
 
 There are two entry points, for different purposes:
