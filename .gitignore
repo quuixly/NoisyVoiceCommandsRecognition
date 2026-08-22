@@ -4,6 +4,8 @@ augmented/
 features/
 manifest.csv
 labels.json
+checkpoints/
+reports/
 .DS_Store
 
 

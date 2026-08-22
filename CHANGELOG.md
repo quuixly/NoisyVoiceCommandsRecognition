@@ -12,6 +12,12 @@ lives under `Unreleased` until that changes.
   ready-to-train PyTorch `DataLoader`s. Separate from the existing fast debug run.
 - Label map (`labels.json`) and dataset manifest (`manifest.csv`) as the shared
   source of truth between pipeline stages.
+- Training loop: a small CNN baseline (~187K params, under the on-device size budget)
+  and a training entry point with seeded reproducibility, checkpointing, early
+  stopping, resume, and an overfit-a-single-batch sanity mode. Each run gets its own
+  checkpoint/report directory so multiple experiments don't overwrite each other.
+- `evaluate.py`: test-set accuracy, confusion matrix, and per-class precision/recall/F1
+  for a trained checkpoint.
 
 ### Changed
 

@@ -11,6 +11,8 @@ AUG_DIR = Path("augmented")
 FEATURES_DIR = Path("features")
 MANIFEST_PATH = Path("manifest.csv")
 LABELS_PATH = Path("labels.json")
+CHECKPOINTS_DIR = Path("checkpoints")
+REPORTS_DIR = Path("reports")
 
 COMMANDS_TO_PROCESS = ["up", "down", "left", "right", "stop", "go"]
 
