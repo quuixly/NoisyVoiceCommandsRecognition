@@ -1,6 +1,10 @@
 data/
 mfcc/
 augmented/
+features/
+manifest.csv
+labels.json
+.DS_Store
 
 
 # Byte-compiled / optimized / DLL files
