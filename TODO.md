@@ -1,84 +1,95 @@
-# TODO
+# TODO — Roadmap to on-device command recognition
 
-## Propper mfcc
+Goal: a small model that recognizes the 6 commands (`data.commands`) live on a phone,
+robustly in noise. The pipeline now runs end to end (`nvcr prepare | train | evaluate`);
+everything below starts from there.
 
-Analyze and move: 
+## Phase 0 — Pipeline (done)
 
-```python
-import numpy as np
-import librosa
-import logging
-from pathlib import Path
+- [x] Config-driven everything: `configs/default.yaml` + `-c experiment.yaml` +
+      `--set key.path=value`. Unknown keys raise. Resolved config is saved per run and
+      embedded in every checkpoint.
+- [x] Single `nvcr` CLI replacing the four root scripts.
+- [x] Speaker-aware splitting — previously the same voice could sit in train and test,
+      so test accuracy was partly measuring speaker memorization.
+- [x] On-the-fly augmentation over the full corpus, replacing the precomputed
+      transform cross-product over a 100-clip subset.
+- [x] `gain` disabled: proven no-op after per-row normalization (4x gain moves features
+      by 8e-06). Pinned by `tests/test_features.py`.
+- [x] Feature front end fixed and made switchable: `n_mels=64, n_mfcc=20` (was 40/40,
+      a full-rank DCT), plus a `logmel` option. One implementation shared by the model
+      and every plot.
+- [x] `WaveformStore` completion markers: an interrupted decode is deleted rather than
+      silently reused as zero-filled audio.
+- [x] Test suite: 27 tests, ~17s, synthetic corpus, no dataset needed.
+- [x] HTML run report + `nvcr compare` + `nvcr preview`.
 
-# ── Config ────────────────────────────────────────────────────────────────────
-N_MFCC        = 40       # richer representation
-MAX_PAD_LEN   = 128      # fixed time-axis length (frames)
-PRE_EMPHASIS  = 0.97     # high-freq boost coefficient
-TOP_DB        = 30       # silence trimming threshold
+## Phase 1 — Baseline model
 
+- [x] `baseline_cnn`: conv stack + global pool, width from config, 186,598 params at the
+      default 20-coefficient front end (under the 200K budget).
+- [x] Trainer: seeded, AMP opt-in, best/last checkpointing, `--set train.resume=true`,
+      early stopping, run-scoped directories.
+- [x] Metrics: accuracy, macro F1, confusion matrix, per-class P/R/F1 with support.
+- [x] Overfit-a-single-batch wiring check.
+- [x] Alternative architectures wired for comparison: `logreg` (the floor any real model
+      must clear) and `crnn` (Conv + BiGRU).
+- [ ] **Run the real comparison** now that it's one command each: `baseline_cnn` vs
+      `crnn` vs `logreg`, and `mfcc` vs `logmel`. Four numbers for the writeup.
+      `nvcr compare` overlays the curves.
+- [ ] Re-measure the headline accuracy on the speaker-disjoint test set. The old number
+      is not comparable — expect it to drop, and that drop is the point.
 
-def extract_mfcc(
-    file: Path,
-    n_mfcc: int = N_MFCC,
-    max_pad_len: int = MAX_PAD_LEN,
-) -> np.ndarray:
-    """
-    Returns a (3 * n_mfcc, max_pad_len) array:
-      - rows 0      ..   n_mfcc-1  → static MFCCs
-      - rows n_mfcc .. 2*n_mfcc-1  → delta  (velocity)
-      - rows 2*n_mfcc.. 3*n_mfcc-1 → delta2 (acceleration)
-    """
-    # 1. Load & resample to a fixed rate for consistency
-    y, sr = librosa.load(file, sr=16_000, mono=True)
+## Phase 2 — Noise robustness
 
-    # 2. Trim leading/trailing silence
-    y, _ = librosa.effects.trim(y, top_db=TOP_DB)
+- [x] Eval-time SNR sweep (`eval.snr_db`), plotted as accuracy vs SNR.
+- [ ] Replace synthetic gaussian noise in the sweep with **real** recordings: babble,
+      traffic, music. `eval.noise` already has the switch; it needs a noise corpus and an
+      `add_noise_at_snr` variant that mixes a sampled clip instead of white noise.
+      This is the blocker on the thesis headline figure being honest.
+- [ ] Train-time background-noise mixing as an augmentation, using the same corpus but a
+      disjoint split of it (never evaluate on noise the model trained against).
+- [ ] Negative class: silence/unknown-word clips, so FAR (false accept) and FRR can be
+      reported separately rather than only accuracy. Needs a 7th label and a confidence
+      threshold sweep — `evaluation.predict` already returns max-softmax confidence.
+- [ ] Optional: SpecAugment-style time/frequency masking, applied after featurization.
 
-    # 3. Pre-emphasis — boosts high-freq speech components
-    y = np.append(y[0], y[1:] - PRE_EMPHASIS * y[:-1])
+## Phase 3 — Mobile export & optimization
 
-    # 4. Compute MFCCs
-    mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc,
-                                  n_fft=512, hop_length=160,
-                                  n_mels=40, fmin=20, fmax=sr // 2)
+- [ ] `torch.onnx.export` to ONNX as the intermediate format.
+- [ ] Quantize: dynamic PTQ first, then static INT8 with a calibration subset of the
+      train split; verify accuracy drop < ~1%.
+- [ ] Budget: model <= 1 MB on disk, < 10 ms per 1 s window on a mid-range phone CPU.
+- [ ] Pick a runtime (TFLite / ExecuTorch / ONNX Runtime Mobile) by deployment target,
+      not by benchmark alone.
+- [ ] Parity harness: same input tensor through PyTorch and the exported model, assert
+      max abs diff < 1e-3.
 
-    # 5. Delta and delta-delta features
-    delta  = librosa.feature.delta(mfccs)
-    delta2 = librosa.feature.delta(mfccs, order=2)
+## Phase 4 — On-device inference loop
 
-    # 6. Stack → shape (3*n_mfcc, T)
-    combined = np.vstack([mfccs, delta, delta2])
+- [ ] Streaming capture: 16 kHz mono, 1 s sliding window, hop 250–500 ms.
+- [ ] On-device preprocessing must mirror `src/data/features.py` exactly. Export the
+      feature config alongside the model — `FeatureConfig.fingerprint()` exists to make
+      a mismatch detectable.
+- [ ] **Normalization decision.** Training uses per-file z-scoring. A streaming window is
+      not a file, so either (a) keep per-window z-scoring and accept the mismatch on
+      partial words, or (b) switch training to dataset-level mean/std
+      (`features.normalize` already has the hook) and ship those constants. (b) is the
+      safer path; it requires a retrain and a re-measure.
+- [ ] Decision policy: k consecutive positive windows + confidence threshold +
+      refractory period, so one utterance can't double-fire.
+- [ ] Ship `labels.json` with the app.
 
-    # 7. Per-feature normalisation (zero mean, unit variance)
-    combined = (combined - combined.mean(axis=1, keepdims=True)) / \
-               (combined.std(axis=1, keepdims=True) + 1e-8)
+## Phase 5 — Real-world validation
 
-    # 8. Pad or truncate to fixed length
-    if combined.shape[1] < max_pad_len:
-        pad_width = max_pad_len - combined.shape[1]
-        combined = np.pad(combined, ((0, 0), (0, pad_width)), mode="constant")
-    else:
-        combined = combined[:, :max_pad_len]
+- [ ] Record a held-out test set: our voices, phone mic, real rooms, real noise. Never
+      trained on; reported separately from the Kaggle test split.
+- [ ] End-to-end latency (audio to decision) and battery cost for continuous listening;
+      consider a VAD gate so the model only runs on speech energy.
+- [ ] Write up: architecture, robustness curves, on-device numbers.
 
-    return combined  # shape: (3*n_mfcc, max_pad_len) e.g. (120, 128)
+## Open decisions
 
-
-def generate_mfcc(start_dir: Path) -> None:
-    MFCC_DIR.mkdir(parents=True, exist_ok=True)
-
-    for command in COMMANDS_TO_PROCESS:
-        logging.info(f"Processing {start_dir}/{command}")
-        command_dir  = start_dir / command
-        save_dir     = MFCC_DIR / command
-        save_dir.mkdir(parents=True, exist_ok=True)
-
-        for number, file in enumerate(command_dir.iterdir()):
-            if not file.is_file():
-                continue
-            try:
-                features = extract_mfcc(file)                    # (120, 128)
-                np.save(save_dir / f"{command}_{number}.npy", features)
-                logging.info(f"  Saved {command}_{number}.npy  shape={features.shape}")
-            except Exception as e:
-                logging.warning(f"  Skipped {file.name}: {e}")
-```
+- Wake-word-first ("hey ..." then command) vs always-on direct detection — changes the
+  FAR requirement and the Phase 4 policy.
+- Android only first, or iOS too (CoreML conversion path)?

@@ -1,20 +1,21 @@
 import numpy as np
 
 
+def accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    return float((y_true == y_pred).mean())
+
+
 def confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray, num_classes: int) -> np.ndarray:
     """rows = true label, cols = predicted label."""
     cm = np.zeros((num_classes, num_classes), dtype=np.int64)
-    for t, p in zip(y_true, y_pred):
-        cm[t, p] += 1
+    np.add.at(cm, (y_true, y_pred), 1)
     return cm
 
 
 def per_class_precision_recall_f1(cm: np.ndarray) -> dict[int, dict[str, float]]:
-    """From a confusion matrix (see confusion_matrix()), one precision/recall/f1
-    triple per class index."""
-    num_classes = cm.shape[0]
+    """One precision/recall/f1 triple per class index, from a confusion matrix."""
     out: dict[int, dict[str, float]] = {}
-    for c in range(num_classes):
+    for c in range(cm.shape[0]):
         tp = cm[c, c]
         fp = cm[:, c].sum() - tp
         fn = cm[c, :].sum() - tp
@@ -25,5 +26,6 @@ def per_class_precision_recall_f1(cm: np.ndarray) -> dict[int, dict[str, float]]
     return out
 
 
-def accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    return float((y_true == y_pred).mean())
+def macro_f1(cm: np.ndarray) -> float:
+    per_class = per_class_precision_recall_f1(cm)
+    return float(np.mean([m["f1"] for m in per_class.values()]))

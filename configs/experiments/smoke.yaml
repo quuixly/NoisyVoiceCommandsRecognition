@@ -1,0 +1,9 @@
+# Tiny end-to-end run for wiring checks. Seconds, not hours.
+data:
+  max_per_command: 60
+train:
+  epochs: 2
+  batch_size: 16
+  num_workers: 0
+eval:
+  snr_db: [10]

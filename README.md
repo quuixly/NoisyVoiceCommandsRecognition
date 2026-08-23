@@ -1,12 +1,14 @@
 # NoisyVoiceCommandsRecognition
 
-Bachelor's thesis project: automatic recognition of voice commands (`up`, `down`, `left`,
-`right`, `stop`, `go`) in noisy environments.
+Bachelor's thesis project: recognizing the voice commands `up`, `down`, `left`, `right`,
+`stop`, `go` in noisy environments, aimed at running on a phone.
 
-Data pipeline (download → augment → MFCC features → `DataLoader`s) plus a training loop
-for a small CNN baseline. Model export/mobile deployment not implemented yet.
+Everything — data preparation, augmentation, features, model, training, evaluation and
+reporting — is driven by one YAML file and one command.
 
-## Getting started
+## TL;DR
+
+**Set up once.**
 
 ```bash
 git clone git@github.com:quuixly/NoisyVoiceCommandsRecognition.git
@@ -14,159 +16,282 @@ cd NoisyVoiceCommandsRecognition
 uv sync
 ```
 
-`uv` manages the virtualenv; you don't need to activate it manually as long as you run
-things through `uv run`.
+**Run the whole thing.** One command: downloads the audio, splits it by speaker, trains,
+evaluates on the test set, sweeps the noise levels, and writes a report.
 
 ```bash
-uv add <package-name>   # add a dependency
+uv run nvcr run --set train.run_name=baseline
+open reports/baseline/report.html
 ```
 
-## Run
+First time takes ~1 min to prepare the corpus plus ~9 s per epoch. Later runs reuse the
+prepared corpus automatically.
 
-Three entry points, for different purposes:
+**Try something different.** Every knob is a config key; nothing is hardcoded.
 
 ```bash
-uv run python main.py             # fast debug run (~5 files/command, generates preview MFCC plots)
-uv run python prepare_dataset.py  # full pipeline (~100 files/command, builds the training-ready dataset)
-uv run python train.py            # trains a model on whatever prepare_dataset.py last built
+uv run nvcr run --set train.run_name=faster --set train.lr=1e-3 --set train.epochs=50
+uv run nvcr run --set train.run_name=logmel --set features.type=logmel
+uv run nvcr run --set train.run_name=crnn   --set model.name=crnn
 ```
 
-`main.py` is for quickly sanity-checking a change to the pipeline — it downloads the
-dataset, augments a handful of files per command, and saves MFCC plots you can eyeball.
-It does **not** produce `manifest.csv`/`features/`, so `train.py` can't run against it.
-
-`prepare_dataset.py` is the real pipeline: downloads the dataset, augments ~100 source
-files per command (plus every transform/combo — hundreds of variants each), extracts
-MFCC+delta+delta² features, assigns train/val/test splits, and writes everything needed
-to build PyTorch `DataLoader`s. Much slower/heavier than `main.py` — this is what
-`train.py` actually consumes.
+**Compare what you tried.**
 
 ```bash
-uv run python train.py --run-name baseline --epochs 30
+uv run nvcr summary                     # every run -> reports/summary.html
+uv run nvcr summary baseline logmel     # or just these two
 ```
 
-Common flags (all have sane defaults — see `src/config.py`'s `TrainConfig` for every
-field): `--model-name`, `--run-name`, `--epochs`, `--batch-size`, `--lr`, `--patience`,
-`--device {auto,cuda,mps,cpu}`, `--resume` (continues `checkpoints/<run-name>/last.pt`),
-`--overfit-batch` (see Testing below).
+**Run a whole batch of experiments unattended.**
 
-Each run writes to its own `checkpoints/<run-name>/` and `reports/<run-name>/` — running
-with a different `--run-name` never overwrites a previous run.
+```bash
+./scripts/sweep.sh                      # every configs/experiments/*.yaml + the defaults
+EPOCHS=40 ./scripts/sweep.sh            # same sweep, 40 epochs each
+./scripts/sweep.sh logmel crnn          # only these
+```
+
+It trains, evaluates and reports each one, keeps going if one fails, and builds the
+comparison page at the end.
+
+**Check nothing is broken** (seconds, no dataset needed):
+
+```bash
+uv run pytest tests -q
+```
+
+---
+
+## The commands in full
+
+| Command                      | What it does                                                                  |
+| ---------------------------- | ----------------------------------------------------------------------------- |
+| `nvcr run`                   | prepare (if stale) + train + evaluate + report. **The one you usually want.** |
+| `nvcr prepare`               | download audio, split by speaker, decode waveforms into packed arrays         |
+| `nvcr train`                 | train only, then write the run's report                                       |
+| `nvcr evaluate --run <name>` | test metrics + SNR sweep for a trained run, refresh its report                |
+| `nvcr report --run <name>`   | rebuild a report from existing artifacts, no compute                          |
+| `nvcr summary [runs...]`     | one comparison page over several runs                                         |
+| `nvcr compare runA runB`     | just the overlaid validation curves, as a PNG                                 |
+| `nvcr preview`               | clean vs augmented waveforms and features, to sanity-check augmentation       |
+
+Every command except `report`, `summary` and `compare` accepts `-c <experiment.yaml>` and
+repeatable `--set key.path=value`.
+
+`nvcr run` skips preparation when the manifest on disk was already built from the same
+`data` and `split` settings, and re-prepares when they differ — so changing
+`data.max_per_command` or `split.by` can't leave you training against the previous corpus.
+Force a skip with `--skip-prepare` if you know better.
+
+## Configuring a run
+
+`configs/default.yaml` holds every knob there is — data, split, features, augmentation,
+model, training, evaluation. Nothing is hardcoded in the source. Two ways to change it:
+
+```bash
+# 1. Ad-hoc overrides. Any key, any depth.
+uv run nvcr train --set train.lr=1e-3 --set model.channels=[64,128,256] --set features.type=logmel
+
+# 2. An experiment file, deep-merged onto the defaults — name only what you change.
+uv run nvcr train -c configs/experiments/logmel.yaml --set train.run_name=logmel
+```
+
+Shipped experiments: `logmel.yaml` (log-mel front end instead of MFCC), `crnn.yaml`
+(Conv + BiGRU), `smoke.yaml` (60 clips per command, 2 epochs — a wiring check that runs
+in seconds).
+
+A typo in a config key is an error, not a silent no-op:
+
+```
+ValueError: Unknown config key(s) for TrainConfig: ['epocs']
+```
+
+The fully resolved config is written to `reports/<run>/config.yaml` **and** into every
+checkpoint, so any run can be reproduced or evaluated from its own artifacts.
+
+## Running experiments
+
+The loop is: change one thing, give it a name, run it, compare.
+
+```bash
+uv run nvcr run --set train.run_name=baseline
+uv run nvcr run --set train.run_name=wider --set model.channels=[64,128,256]
+uv run nvcr run --set train.run_name=logmel --set features.type=logmel
+uv run nvcr summary
+open reports/summary.html
+```
+
+`train.run_name` is the whole isolation mechanism — it names `checkpoints/<name>/` and
+`reports/<name>/`, so two experiments never touch each other's files. Omit it and you get
+a timestamp, which is fine for a one-off and useless for a comparison. **Name your runs.**
+
+When a change is worth keeping, promote it from a `--set` flag to a file in
+`configs/experiments/`, naming only what differs from the defaults:
+
+```yaml
+# configs/experiments/wider.yaml
+model:
+  channels: [64, 128, 256]
+train:
+  epochs: 50
+```
+
+Then `scripts/sweep.sh` picks it up automatically along with everything else in that
+directory:
+
+```bash
+./scripts/sweep.sh              # baseline + every experiment file, then the summary page
+EPOCHS=40 ./scripts/sweep.sh    # same, but force 40 epochs everywhere
+EXTRA="--set train.batch_size=128" ./scripts/sweep.sh
+./scripts/sweep.sh logmel crnn  # only these two
+```
+
+Each experiment becomes a run named after its config file. Per-run logs land in
+`reports/sweep_logs/<name>.log`, and one failing experiment doesn't abort the rest — it's
+recorded and the sweep continues, because a six-hour sweep that dies on its second config
+and discards the rest is worse than one that reports a gap.
+
+### Comparing honestly
+
+`reports/summary.html` is a table of every run — model, features, parameters, epochs, best
+validation accuracy, test accuracy, macro F1, accuracy at the worst SNR — plus overlaid
+validation curves and overlaid noise-robustness curves.
+
+It also carries a **corpus fingerprint** per run, a hash of the `data` and `split` config.
+Runs that don't share one were trained and tested on different clips, so their accuracies
+aren't comparable — the page says so at the top rather than quietly plotting them on one
+axis:
+
+> **These runs do not share one corpus.** 2 different data/split configurations are on
+> this page…
+
+Pass explicit run names to compare within one group.
+
+The noise-robustness chart is usually the one that decides things: two models can tie on
+clean accuracy and come apart badly once noise is added, and only the slope shows it.
+
+### The knobs worth knowing
+
+| Key                                 | What it does                                                          |
+| ----------------------------------- | --------------------------------------------------------------------- |
+| `data.max_per_command`              | `null` = every clip (~3800/command). An int caps it for fast runs.    |
+| `split.by`                          | `speaker` (default) or `file`. See "Leakage" below.                   |
+| `features.type`                     | `mfcc` or `logmel` — swaps the front end; models adapt automatically. |
+| `augment.min_k` / `max_k`           | How many random transforms each training clip gets.                   |
+| `augment.transforms.<name>.enabled` | Turn one transform on/off without touching code.                      |
+| `model.name`                        | `baseline_cnn`, `crnn`, `logreg`.                                     |
+| `model.channels`                    | Conv widths — architecture size is config, not source.                |
+| `eval.snr_db`                       | The SNR points swept at evaluation time.                              |
+
+## How the pipeline works
+
+```
+data/<command>/*.wav                       (nvcr prepare: DatasetLoader)
+  -> manifest.csv + speaker splits          (splits.assign_splits)
+  -> waveforms/<split>.npy                  (WaveformStore — decode once)
+  -> augment + featurize per __getitem__    (RandomAugmenter + Featurizer)
+  -> Trainer.fit -> checkpoints/<run>/      (nvcr train)
+  -> reports/<run>/report.html              (nvcr evaluate / report)
+  -> reports/summary.html                   (nvcr summary, across runs)
+```
+
+`nvcr run` is that whole column in one command; the individual steps exist for when you
+want to redo just one of them.
+
+**Augmentation is on-the-fly.** There is no `augmented/` directory any more. Each
+training item gets a fresh random transform chain every time it is drawn, so the model
+sees the whole ~23K-clip corpus under endlessly varying distortion instead of a fixed
+cross-product of variants over a small subset of it. Measured cost: ~4 ms per clip, ~13 s
+per epoch across 7 workers.
+
+**Leakage.** Speech Commands names files `<speaker>_nohash_<n>.wav`, and a speaker
+records many clips. Splitting per file puts the same voice in train and test, and the
+resulting test accuracy measures speaker memorization. `split.by: speaker` groups every
+clip by its speaker hash and assigns whole speakers to splits, so no voice crosses a
+split boundary.
+
+**One front end.** `src/data/features.py` is the only implementation of
+"waveform → what the model sees", and the plots call it too. A spectrogram in a report is
+always the array the network actually consumed.
+
+## What you get to look at
+
+`nvcr train` and `nvcr evaluate` both leave `reports/<run>/report.html` — one
+self-contained file (images inlined, nothing external to break) with:
+
+- headline tiles: test accuracy, macro F1, parameter count, checkpoint epoch
+- train/val loss and accuracy curves, best epoch marked
+- row-normalized confusion matrix, with the raw counts as a table
+- per-class precision / recall / F1, with support counts
+- accuracy vs SNR — the noise-robustness headline metric
+- the most confident misclassifications, rendered as features
+- the exact config the run used
+
+Every chart is paired with a table of the same numbers, and the individual PNGs are in
+`reports/<run>/figures/` if you want them in the thesis directly.
+
+Across runs, `nvcr summary` writes `reports/summary.html` — the comparison table, overlaid
+validation curves, and overlaid noise-robustness curves, with its figures in
+`reports/figures/`.
 
 ## Testing
 
-There's no unit test suite — the pipeline and training loop are validated by actually
-running them at small scale, fast:
+```bash
+uv run pytest tests -q
+```
+
+37 tests over a synthetic 12-speaker corpus: config merging and override typing, speaker
+leakage, feature shape and invariances, every model against every front end, the
+prepare-staleness check, the full `nvcr run` chain, and the summary page's corpus-mismatch
+warning. About a minute, no dataset required.
+
+A wiring check against the real data, when you've changed the training path:
 
 ```bash
-# 1. Tiny real dataset (seconds, not the full ~100/command run)
-uv run python -c "from prepare_dataset import prepare_dataset; prepare_dataset(sources_per_command=5)"
-
-# 2. Wiring check: can the model actually learn anything at all?
-uv run python train.py --run-name smoke --overfit-batch
-# expect: "Overfit-batch reached 100% train accuracy" within a few dozen steps.
-# If it doesn't, something upstream (data/loss/optimizer) is broken, not the model.
-
-# 3. A couple of real epochs on the tiny set
-uv run python train.py --run-name smoke --epochs 2
-
-# 4. Resume works and doesn't corrupt state
-uv run python train.py --run-name smoke --epochs 3 --resume
-# history.csv should have exactly 3 rows (appended, not duplicated), and epoch
-# should continue from where it left off, not restart at 1.
-
-# 5. Clean up the smoke run
-rm -rf checkpoints/smoke reports/smoke
+uv run nvcr train -c configs/experiments/smoke.yaml --set train.overfit_batch=true
+# expect: "Overfit-batch reached 100% at step N — wiring OK"
 ```
 
-This is the same procedure used to validate the training loop itself — it's how two real
-bugs got caught during development (a wiring test that was silently using the wrong
-hyperparameters, and a checkpoint ordering bug that would have let `--resume` overwrite
-a good `best.pt` with a worse one). Re-run it after touching `src/trainer.py`,
-`src/models/`, or `src/torch_dataset.py`.
+If one batch can't be memorized, something upstream is broken and no amount of epochs
+will fix it.
 
-## Analyzing results
-
-Every run under a given `--run-name` produces:
+## Project layout
 
 ```
-checkpoints/<run-name>/
-  best.pt     # highest-val_acc checkpoint so far (model + optimizer + scheduler + config)
-  last.pt     # most recent epoch (what --resume continues from)
-reports/<run-name>/
-  history.csv        # one row per epoch: epoch, train_loss, val_loss, val_acc, lr, secs
-  test_metrics.json   # written by evaluate.py — see below
-```
-
-**During/after training** — plot `history.csv` (loss/accuracy curves, e.g. with pandas +
-matplotlib) to check for overfitting (val loss rising while train loss keeps falling) or
-an unstable LR.
-
-**On the held-out test set**, once you have a `best.pt` you trust:
-
-```bash
-uv run python evaluate.py --run-name baseline
-```
-
-Writes `reports/<run-name>/test_metrics.json`: overall accuracy, the full confusion
-matrix, and per-class precision/recall/F1. The confusion matrix is the useful part for
-this thesis specifically — acoustically close pairs (`up`/`down`, `left`/`right`) mixing
-up tells you which augmentations need strengthening, not just that accuracy is X%.
-
-Checkpoints are plain `torch.load(..., weights_only=False)`-able dicts if you want to
-poke at them directly — `ckpt["config"]` has the exact hyperparameters that run used.
-
-## Project structure
-
-```
-main.py               fast debug entry point
-prepare_dataset.py    full training-prep entry point
-train.py               training entry point
-evaluate.py             test-set evaluation entry point
+configs/
+  default.yaml          every knob, documented inline
+  experiments/          sparse overrides: logmel, crnn, smoke
 src/
-  constants.py         shared paths + pipeline constants (N_MFCC, MAX_PAD_LEN, ...)
-  logging_config.py     shared logging setup for every entry point
-  data_loader.py         DatasetLoader: downloads/caches raw audio from Kaggle
-  augmenter.py            Augmenter: applies audiomentations transforms + combos
-  feature_extractor.py     extract_mfcc() + FeatureExtractor: MFCC/delta/delta² -> packed arrays
-  splitter.py              assign_splits(): group-aware, per-command train/val/test split
-  manifest.py               read/write manifest.csv
-  labels.py                 command <-> index label map
-  torch_dataset.py          SpeechCommandsDataset + get_dataloaders()
-  visualization.py          MFCC plots, raw-vs-augmented comparison plots
-  config.py                TrainConfig — single source of training hyperparameters
-  seed.py                   set_seed(): reproducible model init (CUDA fully, MPS best-effort)
-  models/                   build_model(name) factory + baseline_cnn.py
-  trainer.py                Trainer: epoch loop, checkpointing, early stop, resume
-  metrics.py                confusion matrix, per-class precision/recall/F1
+  config.py             nested dataclasses, YAML deep-merge, --set overrides
+  cli.py                the nvcr command
+  evaluation.py         test metrics, SNR sweep, worst-error selection
+  labels.py             command <-> index
+  data/
+    kaggle.py           dataset download
+    prepare.py          manifest + splits + waveform packs
+    splits.py           speaker-aware, ratio-accurate splitting
+    waveforms.py        decode-once packed waveform cache
+    augment.py          on-the-fly random transform chains, SNR mixing
+    features.py         the single MFCC / log-mel front end
+    dataset.py          Dataset + DataLoaders
+    manifest.py         manifest.csv read/write
+  models/               build_model(config) registry: baseline_cnn, crnn, logreg
+  training/             Trainer, metrics, device, seeding
+  viz/
+    theme.py            palette + matplotlib style, shared by every figure
+    charts.py           curves, confusion, per-class, SNR, run overlays
+    audio.py            waveform + feature figures, via the real Featurizer
+    report.py           one run's self-contained HTML report
+    summary.py          the cross-run comparison page
+scripts/
+  sweep.sh              run every experiment, then build the summary
+tests/
 ```
 
-Everything under `src/` is documented in detail in `CLAUDE.md`, aimed at whoever (human
-or AI assistant) is picking the pipeline back up.
+`data/`, `waveforms/`, `manifest.csv`, `labels.json`, `checkpoints/` and `reports/` are
+gitignored — regenerated locally, never checked in.
 
-## Pipeline stages
+## Status
 
-```
-data/<command>/*.wav                         (DatasetLoader)
-  -> augmented/<command>/*.wav                (Augmenter)
-  -> manifest.csv (raw + augmented rows)      (Augmenter.manifest_rows)
-  -> manifest.csv + split column              (assign_splits)
-  -> features/<split>.npy (packed array)      (FeatureExtractor)
-  -> manifest.csv + feature_path/feature_idx  (FeatureExtractor)
-  -> SpeechCommandsDataset / DataLoader        (torch_dataset.py)
-  -> Trainer.fit -> checkpoints/<run>/         (train.py)
-  -> evaluate.py -> reports/<run>/             (evaluate.py)
-```
-
-`data/`, `augmented/`, `mfcc/`, `features/`, `manifest.csv`, `labels.json`,
-`checkpoints/`, and `reports/` are all gitignored — regenerated locally by running the
-pipeline, not checked in.
-
-## Status / what's missing
-
-Data pipeline and training loop are done (baseline CNN, ~187K params). Not implemented
-yet: noise-robustness evaluation (SNR sweep, FAR/FRR — blocked on sourcing real
-background-noise/negative-class audio, see `TODO.md` Phase 2) and mobile export
-(ONNX + quantization, `TODO.md` Phase 3).
-
-See `TODO.md` and `CHANGELOG.md` for more detail.
+Data pipeline, training, evaluation and reporting are done. Not implemented yet: real
+recorded background noise (the SNR sweep currently mixes synthetic noise), FAR/FRR against
+a negative class, and mobile export (ONNX + quantization). See `TODO.md`.

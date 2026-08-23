@@ -1,0 +1,81 @@
+# Single source of truth for every knob in the pipeline.
+# Override with:  -c configs/experiments/<name>.yaml   (deep-merged onto this file)
+# or per-key:     --set train.lr=1e-3 --set features.type=logmel
+
+seed: 42
+
+data:
+  kaggle_dataset: yashdogra/speech-commands
+  data_dir: data
+  commands: [up, down, left, right, stop, go]
+  sample_rate: 16000
+  clip_seconds: 1.0
+  # null = use every clip found on disk. An int caps clips per command (fast smoke runs).
+  max_per_command: null
+
+split:
+  # "speaker" groups by the <speaker>_nohash_<n>.wav prefix so no speaker appears in
+  # two splits. "file" reproduces the old per-file grouping (leaky — comparison only).
+  by: speaker
+  train: 0.7
+  val: 0.15
+  test: 0.15
+  seed: 42
+
+features:
+  type: mfcc            # mfcc | logmel
+  n_fft: 512
+  hop_length: 160
+  n_mels: 64
+  fmin: 20
+  fmax: 8000
+  n_mfcc: 20            # mfcc only. Keep <= n_mels/2 or the top coefficients are ripple.
+  deltas: true          # mfcc only: stack delta + delta2 as extra channels
+  pre_emphasis: 0.97    # 0 disables
+  trim_top_db: null     # null = no silence trim (clips are already fixed-length)
+  normalize: per_file   # per_file | none
+  max_frames: 101       # 1.0 s at hop_length 160
+
+augment:
+  enabled: true
+  # Per item, k transforms are drawn uniformly from [min_k, max_k] and applied in order.
+  min_k: 1
+  max_k: 2
+  transforms:
+    gaussian_noise: {enabled: true, min_amplitude: 0.005, max_amplitude: 0.03}
+    time_stretch:   {enabled: true, min_rate: 0.85, max_rate: 1.15}
+    pitch_shift:    {enabled: true, min_semitones: -3, max_semitones: 3}
+    shift:          {enabled: true, min_shift: -0.2, max_shift: 0.2}
+    low_pass:       {enabled: true, min_cutoff_freq: 1000, max_cutoff_freq: 4000}
+    high_pass:      {enabled: true, min_cutoff_freq: 100, max_cutoff_freq: 1000}
+    clipping:       {enabled: true, min_percentile_threshold: 0, max_percentile_threshold: 5}
+    # gain is deliberately absent: a constant waveform scale lands only in MFCC c0 and
+    # is removed exactly by per-file normalization. Measured effect on features: 8e-06.
+    gain:           {enabled: false, min_gain_db: -6, max_gain_db: 6}
+
+model:
+  name: baseline_cnn
+  channels: [32, 64, 96, 128]
+  dropout: 0.3
+
+train:
+  run_name: ""          # empty -> local timestamp
+  epochs: 30
+  batch_size: 64
+  lr: 3.0e-4
+  weight_decay: 1.0e-4
+  label_smoothing: 0.05
+  warmup_epochs: 2
+  grad_clip: 1.0
+  patience: 7
+  device: auto          # auto | cuda | mps | cpu
+  amp: false            # MPS AMP is flaky
+  num_workers: 7
+  overfit_batch: false
+  resume: false
+
+eval:
+  batch_size: 128
+  # SNR sweep for the noise-robustness headline metric. Empty list = clean test only.
+  snr_db: [20, 15, 10, 5, 0]
+  noise: gaussian       # gaussian | babble

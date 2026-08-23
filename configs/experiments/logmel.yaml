@@ -1,0 +1,5 @@
+# Log-mel front end instead of MFCC. 64 rows, single channel, no DCT and no deltas.
+features:
+  type: logmel
+model:
+  name: baseline_cnn
