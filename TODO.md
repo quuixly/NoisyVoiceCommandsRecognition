@@ -1,7 +1,7 @@
 # TODO — Roadmap to on-device command recognition
 
 Goal: a small model that recognizes the 6 commands (`data.commands`) live on a phone,
-robustly in noise. The pipeline now runs end to end (`nvcr prepare | train | evaluate`);
+robustly in noise. The pipeline now runs end to end (`main.py prepare | train | evaluate`);
 everything below starts from there.
 
 ## Phase 0 — Pipeline (done)
@@ -9,7 +9,8 @@ everything below starts from there.
 - [x] Config-driven everything: `configs/default.yaml` + `-c experiment.yaml` +
       `--set key.path=value`. Unknown keys raise. Resolved config is saved per run and
       embedded in every checkpoint.
-- [x] Single `nvcr` CLI replacing the four root scripts.
+- [x] Single entry point: `main.py` (parsing) + `src/pipeline.py` (stages), replacing
+      the four root scripts, then the `nvcr` console script and `scripts/sweep.sh`.
 - [x] Speaker-aware splitting — previously the same voice could sit in train and test,
       so test accuracy was partly measuring speaker memorization.
 - [x] On-the-fly augmentation over the full corpus, replacing the precomputed
@@ -21,8 +22,8 @@ everything below starts from there.
       and every plot.
 - [x] `WaveformStore` completion markers: an interrupted decode is deleted rather than
       silently reused as zero-filled audio.
-- [x] Test suite: 27 tests, ~17s, synthetic corpus, no dataset needed.
-- [x] HTML run report + `nvcr compare` + `nvcr preview`.
+- [x] Test suite: 42 tests, ~75s, synthetic corpus, no dataset needed.
+- [x] HTML run report + `main.py compare` + `main.py preview`.
 
 ## Phase 1 — Baseline model
 
@@ -34,13 +35,18 @@ everything below starts from there.
 - [x] Overfit-a-single-batch wiring check.
 - [x] Alternative architectures wired for comparison: `logreg` (the floor any real model
       must clear) and `crnn` (Conv + BiGRU).
-- [ ] **Run the real comparison** now that it's one command each: `baseline_cnn` vs
-      `crnn` vs `logreg`, and `mfcc` vs `logmel`. Four numbers for the writeup.
-      `nvcr compare` overlays the curves.
+- [x] Experiment configs for the comparison: `baseline`, `crnn`, `logreg`, `logmel`,
+      `mfcc13`, `no_augment`, `heavy_augment`, `tiny_cnn`, `wide_cnn`.
+- [ ] **Run the real comparison**: `uv run python main.py sweep`, then read
+      `reports/summary.html`. `baseline_cnn` vs `crnn` vs `logreg`, `mfcc` vs `logmel`,
+      and the augmentation gap at low SNR. `main.py compare` overlays the curves.
 - [ ] Re-measure the headline accuracy on the speaker-disjoint test set. The old number
       is not comparable — expect it to drop, and that drop is the point.
+- [ ] Measure, record time of training, amount of parameters. Include those in reports
+- [ ] Basic web interface for manual testing
+- [ ] 
 
-## Phase 2 — Noise robustness
+## Phase 2 — Noise robustness 
 
 - [x] Eval-time SNR sweep (`eval.snr_db`), plotted as accuracy vs SNR.
 - [ ] Replace synthetic gaussian noise in the sweep with **real** recordings: babble,
@@ -54,7 +60,7 @@ everything below starts from there.
       threshold sweep — `evaluation.predict` already returns max-softmax confidence.
 - [ ] Optional: SpecAugment-style time/frequency masking, applied after featurization.
 
-## Phase 3 — Mobile export & optimization
+## Phase 3 — Mobile export & optimization & small upgrades
 
 - [ ] `torch.onnx.export` to ONNX as the intermediate format.
 - [ ] Quantize: dynamic PTQ first, then static INT8 with a calibration subset of the

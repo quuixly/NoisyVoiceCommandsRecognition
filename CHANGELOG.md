@@ -9,20 +9,10 @@ lives under `Unreleased` until that changes.
 
 - Configuration system: `configs/default.yaml` holds every knob in the project, with
   experiment files that override only what they change and `--set key.path=value` for
-  ad-hoc changes. Unknown keys are rejected instead of silently ignored. The resolved
-  configuration is saved with each run and embedded in every checkpoint, so a run can be
-  reproduced or evaluated from its own artifacts.
-- A single `nvcr` command with subcommands for preparing data, training, evaluating,
-  reporting, comparing runs, and previewing augmentation — replacing four separate
-  scripts.
-- HTML run report: one self-contained file per run with headline figures, training
-  curves, a confusion matrix, per-class scores, an accuracy-vs-noise curve, the model's
-  most confident mistakes, and the exact configuration used. Every chart is paired with
-  a table of the same numbers.
+  ad-hoc changes.
+- HTML run reports
 - Noise-robustness evaluation: accuracy measured across a sweep of signal-to-noise
-  ratios, not just on clean audio.
-- Two more model architectures for comparison (a recurrent model and a linear baseline),
-  selectable by name from the config.
+  ratios
 - A log-mel feature front end as an alternative to MFCC, switchable from the config with
   no model changes.
 - Automated test suite (27 tests, ~17 seconds, no dataset required) covering
@@ -30,31 +20,10 @@ lives under `Unreleased` until that changes.
 
 ### Changed
 
-- **Train/test splitting is now speaker-aware.** Previously the same speaker's recordings
-  could appear in both training and test data, so reported test accuracy was partly
-  measuring memorization of individual voices. Results from before this change are not
-  comparable with results after it.
-- Split ratios are now accurate. The previous per-command approach drifted to 77/13/10
-  when asked for 70/15/15, because speakers record several different commands.
-- **Augmentation now happens during training rather than being written to disk.** The
-  previous approach precomputed every combination of transforms for a small subset of the
-  audio; the model now sees the entire corpus (~3,800 recordings per command instead of
-  100) under continuously varying distortion. Hours of preprocessing and gigabytes of
-  generated audio are no longer needed.
-- **One entry point again: `main.py`.** The `nvcr` console script and the
-  `scripts/sweep.sh` shell script are gone; `main.py` parses arguments and dispatches,
-  and `src/pipeline.py` holds each stage as a plain function. The sweep is now Python
-  rather than bash — it discovers experiment files itself, forwards `--set` overrides
-  instead of `EPOCHS`/`EXTRA` environment variables, and runs each experiment in its own
-  child process so one crash cannot end a long sweep.
-- `src/viz/` renamed to `src/visualization/` — the abbreviation said nothing the full
-  word doesn't. No behaviour change.
-- Experiment configs now cover the comparisons the thesis actually needs: the three
-  architectures, both feature front ends, an augmentation ablation and a heavier
-  augmentation setting, a small on-device candidate, and a capacity probe.
-- Commands that take a run now accept a path to it as well as its name
-  (`--run reports/baseline`, `--run checkpoints/baseline/best.pt`), so shell completion
-  is enough.
+- Train/test splitting is now speaker-aware. 
+- Split ratios are now accurate.
+- Augmentation now happens during training rather than being written to disk. 
+- One entry point: `main.py`. 
 - Feature extraction settings corrected: the previous configuration requested as many
   output coefficients as it had frequency bands, so roughly a quarter of every extracted
   feature carried filterbank artifacts rather than speech.
@@ -71,13 +40,8 @@ lives under `Unreleased` until that changes.
   accuracy noisy and slightly pessimistic.
 - The `gain` augmentation had no effect whatsoever: the feature normalization step
   removes exactly the change a volume adjustment produces (measured difference after a
-  4x volume change: 0.000008). Nearly half of all previously generated audio variants
-  differed from another variant only by this no-op. It is now disabled by default, with
-  a test pinning the reason.
-
+  4x volume change: 0.000008). 
 ### Removed
 
 - The precomputed `augmented/` audio directory and the per-file feature cache, both
   superseded by on-the-fly augmentation.
-- The four root-level scripts (`main.py`, `prepare_dataset.py`, `train.py`,
-  `evaluate.py`), replaced by the `nvcr` command.
