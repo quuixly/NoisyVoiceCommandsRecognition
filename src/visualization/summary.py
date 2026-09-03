@@ -11,7 +11,7 @@ from pathlib import Path
 import yaml
 
 from src.config import corpus_fingerprint_of
-from src.viz.report import CSS, _img, _table
+from src.visualization.report import CSS, _img, _table
 
 EXTRA_CSS = """
 .rank { color:var(--ink-3); font-variant-numeric:tabular-nums; }
@@ -101,7 +101,7 @@ def _corpus_warning(runs: dict[str, dict]) -> str:
         f"{len(groups)} different data/split configurations are on this page, so their "
         f"accuracies are not directly comparable and the charts below put them on one axis anyway:"
         f"<ul>{lines}</ul>"
-        "Pass explicit run names to <code>nvcr summary</code> to compare within one group.</div>"
+        "Pass explicit run names to <code>main.py summary</code> to compare within one group.</div>"
     )
 
 
@@ -117,7 +117,7 @@ def build_summary(runs: dict[str, dict], out_path: Path, figures: dict[str, Path
     if evaluated < len(runs):
         parts.append(
             f'<p class="note">{len(runs) - evaluated} of {len(runs)} runs have not been '
-            "evaluated yet — their test columns are blank. Run <code>nvcr evaluate --run &lt;name&gt;</code>.</p>"
+            "evaluated yet — their test columns are blank. Run <code>main.py evaluate --run &lt;name&gt;</code>.</p>"
         )
     if "curves" in figures:
         parts.append("<h2>Validation curves</h2>" + _img(figures["curves"]))

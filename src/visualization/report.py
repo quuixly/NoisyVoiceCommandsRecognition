@@ -60,7 +60,7 @@ def _tiles(items: list[tuple[str, str]]) -> str:
 
 def build_report(run_dir: Path, config: dict, metrics: dict | None, figures: dict[str, Path]) -> Path:
     """Assembles whatever exists: a report can be built mid-training from history
-    alone, and gains the test sections once `nvcr evaluate` has run."""
+    alone, and gains the test sections once `main.py evaluate` has run."""
     run_dir = Path(run_dir)
     parts: list[str] = []
     run_name = config.get("train", {}).get("run_name", run_dir.name)

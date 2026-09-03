@@ -16,7 +16,7 @@ from typing import Any
 import yaml
 
 # Resolved against the package, not the working directory: `configs/` ships with the
-# repository, so `nvcr` works from any directory instead of only the repository root.
+# repository, so main.py works from any directory instead of only the repository root.
 # A local override is what `-c` is for.
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "configs" / "default.yaml"
 
@@ -164,7 +164,7 @@ class Config:
 
     def corpus_fingerprint(self) -> str:
         """Short hash of everything that decides which clips exist and where they go:
-        the data selection and the split. `nvcr run` compares it against the stamp
+        the data selection and the split. `main.py run` compares it against the stamp
         left by the last prepare, so changing `data.max_per_command` or `split.by`
         re-prepares instead of training on a manifest that no longer matches."""
         return corpus_fingerprint_of(self.to_dict())

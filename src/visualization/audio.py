@@ -10,8 +10,8 @@ import numpy as np
 from src.config import Config
 from src.data.augment import RandomAugmenter
 from src.data.features import Featurizer
-from src.viz.charts import _save
-from src.viz.theme import SERIES, sequential_cmap, styled
+from src.visualization.charts import _save
+from src.visualization.theme import SERIES, sequential_cmap, styled
 
 
 def _show_features(ax, features: np.ndarray, title: str, feature_type: str) -> None:

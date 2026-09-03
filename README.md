@@ -20,7 +20,7 @@ uv sync
 evaluates on the test set, sweeps the noise levels, and writes a report.
 
 ```bash
-uv run nvcr run --set train.run_name=baseline
+uv run python main.py run --set train.run_name=baseline
 open reports/baseline/report.html
 ```
 
@@ -30,24 +30,24 @@ prepared corpus automatically.
 **Try something different.** Every knob is a config key; nothing is hardcoded.
 
 ```bash
-uv run nvcr run --set train.run_name=faster --set train.lr=1e-3 --set train.epochs=50
-uv run nvcr run --set train.run_name=logmel --set features.type=logmel
-uv run nvcr run --set train.run_name=crnn   --set model.name=crnn
+uv run python main.py run --set train.run_name=faster --set train.lr=1e-3 --set train.epochs=50
+uv run python main.py run --set train.run_name=logmel --set features.type=logmel
+uv run python main.py run --set train.run_name=crnn   --set model.name=crnn
 ```
 
 **Compare what you tried.**
 
 ```bash
-uv run nvcr summary                     # every run -> reports/summary.html
-uv run nvcr summary baseline logmel     # or just these two
+uv run python main.py summary                     # every run -> reports/summary.html
+uv run python main.py summary baseline logmel     # or just these two
 ```
 
 **Run a whole batch of experiments unattended.**
 
 ```bash
-./scripts/sweep.sh                      # every configs/experiments/*.yaml + the defaults
-EPOCHS=40 ./scripts/sweep.sh            # same sweep, 40 epochs each
-./scripts/sweep.sh logmel crnn          # only these
+uv run python main.py sweep                          # every configs/experiments/*.yaml + the defaults
+uv run python main.py sweep --set train.epochs=40    # same sweep, 40 epochs each
+uv run python main.py sweep logmel crnn              # only these
 ```
 
 It trains, evaluates and reports each one, keeps going if one fails, and builds the
@@ -63,21 +63,25 @@ uv run pytest tests -q
 
 ## The commands in full
 
-| Command                      | What it does                                                                  |
-| ---------------------------- | ----------------------------------------------------------------------------- |
-| `nvcr run`                   | prepare (if stale) + train + evaluate + report. **The one you usually want.** |
-| `nvcr prepare`               | download audio, split by speaker, decode waveforms into packed arrays         |
-| `nvcr train`                 | train only, then write the run's report                                       |
-| `nvcr evaluate --run <name>` | test metrics + SNR sweep for a trained run, refresh its report                |
-| `nvcr report --run <name>`   | rebuild a report from existing artifacts, no compute                          |
-| `nvcr summary [runs...]`     | one comparison page over several runs                                         |
-| `nvcr compare runA runB`     | just the overlaid validation curves, as a PNG                                 |
-| `nvcr preview`               | clean vs augmented waveforms and features, to sanity-check augmentation       |
+Everything goes through `main.py`; there is no second entry point and no shell script.
+
+| Command                             | What it does                                                                  |
+| ----------------------------------- | ----------------------------------------------------------------------------- |
+| `main.py run`                       | prepare (if stale) + train + evaluate + report. **The one you usually want.** |
+| `main.py sweep [names...]`          | that chain once per experiment, each in its own process, then the summary page |
+| `main.py prepare`                   | download audio, split by speaker, decode waveforms into packed arrays         |
+| `main.py train`                     | train only, then write the run's report                                       |
+| `main.py evaluate --run <name>`     | test metrics + SNR sweep for a trained run, refresh its report                |
+| `main.py report --run <name>`       | rebuild a report from existing artifacts, no compute                          |
+| `main.py summary [runs...]`         | one comparison page over several runs                                         |
+| `main.py compare runA runB`         | just the overlaid validation curves, as a PNG                                 |
+| `main.py preview`                   | clean vs augmented waveforms and features, to sanity-check augmentation       |
 
 Every command except `report`, `summary` and `compare` accepts `-c <experiment.yaml>` and
-repeatable `--set key.path=value`.
+repeatable `--set key.path=value`. `sweep` takes `--set` too and forwards it to every
+experiment.
 
-`nvcr run` skips preparation when the manifest on disk was already built from the same
+`main.py run` skips preparation when the manifest on disk was already built from the same
 `data` and `split` settings, and re-prepares when they differ — so changing
 `data.max_per_command` or `split.by` can't leave you training against the previous corpus.
 Force a skip with `--skip-prepare` if you know better.
@@ -89,10 +93,10 @@ model, training, evaluation. Nothing is hardcoded in the source. Two ways to cha
 
 ```bash
 # 1. Ad-hoc overrides. Any key, any depth.
-uv run nvcr train --set train.lr=1e-3 --set model.channels=[64,128,256] --set features.type=logmel
+uv run python main.py train --set train.lr=1e-3 --set model.channels=[64,128,256] --set features.type=logmel
 
 # 2. An experiment file, deep-merged onto the defaults — name only what you change.
-uv run nvcr train -c configs/experiments/logmel.yaml --set train.run_name=logmel
+uv run python main.py train -c configs/experiments/logmel.yaml --set train.run_name=logmel
 ```
 
 Shipped experiments: `logmel.yaml` (log-mel front end instead of MFCC), `crnn.yaml`
@@ -113,10 +117,10 @@ checkpoint, so any run can be reproduced or evaluated from its own artifacts.
 The loop is: change one thing, give it a name, run it, compare.
 
 ```bash
-uv run nvcr run --set train.run_name=baseline
-uv run nvcr run --set train.run_name=wider --set model.channels=[64,128,256]
-uv run nvcr run --set train.run_name=logmel --set features.type=logmel
-uv run nvcr summary
+uv run python main.py run --set train.run_name=baseline
+uv run python main.py run --set train.run_name=wider --set model.channels=[64,128,256]
+uv run python main.py run --set train.run_name=logmel --set features.type=logmel
+uv run python main.py summary
 open reports/summary.html
 ```
 
@@ -135,20 +139,22 @@ train:
   epochs: 50
 ```
 
-Then `scripts/sweep.sh` picks it up automatically along with everything else in that
+Then `main.py sweep` picks it up automatically along with everything else in that
 directory:
 
 ```bash
-./scripts/sweep.sh              # baseline + every experiment file, then the summary page
-EPOCHS=40 ./scripts/sweep.sh    # same, but force 40 epochs everywhere
-EXTRA="--set train.batch_size=128" ./scripts/sweep.sh
-./scripts/sweep.sh logmel crnn  # only these two
+uv run python main.py sweep                              # baseline + every experiment file, then the summary page
+uv run python main.py sweep --set train.epochs=40        # same, but force 40 epochs everywhere
+uv run python main.py sweep --set train.batch_size=128
+uv run python main.py sweep logmel crnn                  # only these two
 ```
 
-Each experiment becomes a run named after its config file. Per-run logs land in
-`reports/sweep_logs/<name>.log`, and one failing experiment doesn't abort the rest — it's
-recorded and the sweep continues, because a six-hour sweep that dies on its second config
-and discards the rest is worse than one that reports a gap.
+Each experiment becomes a run named after its config file, and runs in its own child
+process — a crash or an out-of-memory in one config leaves the others untouched and gives
+each run clean accelerator state. Per-run logs land in `reports/sweep_logs/<name>.log`
+(and stream to your terminal as they arrive), and one failing experiment doesn't abort the
+rest — it's recorded and the sweep continues, because a six-hour sweep that dies on its
+second config and discards the rest is worse than one that reports a gap.
 
 ### Comparing honestly
 
@@ -185,16 +191,16 @@ clean accuracy and come apart badly once noise is added, and only the slope show
 ## How the pipeline works
 
 ```
-data/<command>/*.wav                       (nvcr prepare: DatasetLoader)
+data/<command>/*.wav                       (main.py prepare: DatasetLoader)
   -> manifest.csv + speaker splits          (splits.assign_splits)
   -> waveforms/<split>.npy                  (WaveformStore — decode once)
   -> augment + featurize per __getitem__    (RandomAugmenter + Featurizer)
-  -> Trainer.fit -> checkpoints/<run>/      (nvcr train)
-  -> reports/<run>/report.html              (nvcr evaluate / report)
-  -> reports/summary.html                   (nvcr summary, across runs)
+  -> Trainer.fit -> checkpoints/<run>/      (main.py train)
+  -> reports/<run>/report.html              (main.py evaluate / report)
+  -> reports/summary.html                   (main.py summary, across runs)
 ```
 
-`nvcr run` is that whole column in one command; the individual steps exist for when you
+`main.py run` is that whole column in one command; the individual steps exist for when you
 want to redo just one of them.
 
 **Augmentation is on-the-fly.** There is no `augmented/` directory any more. Each
@@ -215,7 +221,7 @@ always the array the network actually consumed.
 
 ## What you get to look at
 
-`nvcr train` and `nvcr evaluate` both leave `reports/<run>/report.html` — one
+`main.py train` and `main.py evaluate` both leave `reports/<run>/report.html` — one
 self-contained file (images inlined, nothing external to break) with:
 
 - headline tiles: test accuracy, macro F1, parameter count, checkpoint epoch
@@ -229,7 +235,7 @@ self-contained file (images inlined, nothing external to break) with:
 Every chart is paired with a table of the same numbers, and the individual PNGs are in
 `reports/<run>/figures/` if you want them in the thesis directly.
 
-Across runs, `nvcr summary` writes `reports/summary.html` — the comparison table, overlaid
+Across runs, `main.py summary` writes `reports/summary.html` — the comparison table, overlaid
 validation curves, and overlaid noise-robustness curves, with its figures in
 `reports/figures/`.
 
@@ -241,13 +247,13 @@ uv run pytest tests -q
 
 37 tests over a synthetic 12-speaker corpus: config merging and override typing, speaker
 leakage, feature shape and invariances, every model against every front end, the
-prepare-staleness check, the full `nvcr run` chain, and the summary page's corpus-mismatch
+prepare-staleness check, the full `main.py run` chain, and the summary page's corpus-mismatch
 warning. About a minute, no dataset required.
 
 A wiring check against the real data, when you've changed the training path:
 
 ```bash
-uv run nvcr train -c configs/experiments/smoke.yaml --set train.overfit_batch=true
+uv run python main.py train -c configs/experiments/smoke.yaml --set train.overfit_batch=true
 # expect: "Overfit-batch reached 100% at step N — wiring OK"
 ```
 
@@ -260,9 +266,10 @@ will fix it.
 configs/
   default.yaml          every knob, documented inline
   experiments/          sparse overrides: logmel, crnn, smoke
+main.py                 the only entry point: argument parsing and dispatch
 src/
   config.py             nested dataclasses, YAML deep-merge, --set overrides
-  cli.py                the nvcr command
+  pipeline.py           the stages: prepare, train, evaluate, report, run, sweep
   evaluation.py         test metrics, SNR sweep, worst-error selection
   labels.py             command <-> index
   data/
@@ -276,14 +283,12 @@ src/
     manifest.py         manifest.csv read/write
   models/               build_model(config) registry: baseline_cnn, crnn, logreg
   training/             Trainer, metrics, device, seeding
-  viz/
+  visualization/
     theme.py            palette + matplotlib style, shared by every figure
     charts.py           curves, confusion, per-class, SNR, run overlays
     audio.py            waveform + feature figures, via the real Featurizer
     report.py           one run's self-contained HTML report
     summary.py          the cross-run comparison page
-scripts/
-  sweep.sh              run every experiment, then build the summary
 tests/
 ```
 

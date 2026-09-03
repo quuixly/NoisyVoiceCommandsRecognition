@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import MaxNLocator
 
-from src.viz.theme import (
+from src.visualization.theme import (
     GRID,
     SERIES,
     SURFACE,

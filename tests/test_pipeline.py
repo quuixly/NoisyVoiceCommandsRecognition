@@ -35,7 +35,7 @@ def test_dataset_augments_train_and_freezes_val(config):
 
 
 def test_train_evaluate_report_round_trip(config):
-    from src.cli import _build_report
+    from src.pipeline import build_report
     from src.evaluation import evaluate_run
     from src.training.trainer import Trainer, run_dirs
 
@@ -55,7 +55,7 @@ def test_train_evaluate_report_round_trip(config):
     saved = json.loads((report_dir / "test_metrics.json").read_text())
     assert saved["labels"] == config.data.commands
 
-    report = _build_report("smoke")
+    report = build_report("smoke")
     assert report.exists()
     html = report.read_text()
     assert "Confusion matrix" in html and "data:image/png;base64," in html

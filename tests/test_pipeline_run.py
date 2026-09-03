@@ -1,10 +1,10 @@
-"""The `nvcr run` chain and the cross-run summary page."""
+"""The `main.py run` chain and the cross-run summary page."""
 
 import json
 
 import pytest
 
-from src.cli import main
+from main import main
 from src.data.prepare import needs_prepare, prepare_dataset, stamp_path
 from src.training.trainer import REPORTS_DIR, run_dirs
 
