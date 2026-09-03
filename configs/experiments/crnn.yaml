@@ -1,3 +1,8 @@
+# Conv front end + bidirectional GRU over time. The baseline's global average pool
+# discards the order in which the spectrum evolves; "up" and "stop" differ mainly in
+# that order, so this is the architecture that should win if temporal structure matters.
+# 243,174 parameters — 30% above the baseline, still inside the 200K-ish budget's reach
+# once the conv widths are trimmed if it wins.
 model:
   name: crnn
   channels: [32, 64, 96]

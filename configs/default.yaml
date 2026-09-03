@@ -54,9 +54,10 @@ augment:
     gain:           {enabled: false, min_gain_db: -6, max_gain_db: 6}
 
 model:
-  name: baseline_cnn
+  name: baseline_cnn      # baseline_cnn | crnn | logreg
   channels: [32, 64, 96, 128]
   dropout: 0.3
+  rnn_hidden: 96          # crnn only: hidden units per GRU direction
 
 train:
   run_name: ""          # empty -> local timestamp

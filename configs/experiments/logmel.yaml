@@ -1,4 +1,7 @@
-# Log-mel front end instead of MFCC. 64 rows, single channel, no DCT and no deltas.
+# Log-mel front end instead of MFCC: 64 rows, one channel, no DCT and no deltas.
+# Same model as the baseline, so the difference in the summary table is the front end
+# alone — the mfcc-vs-logmel number for the writeup.
+# 186,022 parameters: the front end changes the input, not the model size.
 features:
   type: logmel
 model:

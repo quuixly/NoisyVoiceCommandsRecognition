@@ -1,0 +1,10 @@
+# The floor. Flatten the features, one linear layer, no convolution at all. If the CNN
+# is not well clear of this, the accuracy is coming from the front end rather than the
+# architecture — which is a result worth reporting either way.
+# 36,366 parameters (one 6060x6 weight matrix).
+model:
+  name: logreg
+train:
+  # A linear model converges (and starts overfitting) far sooner than the conv stack.
+  epochs: 20
+  lr: 1.0e-3

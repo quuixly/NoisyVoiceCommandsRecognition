@@ -5,7 +5,7 @@
     python main.py run -c configs/experiments/logmel.yaml --set train.epochs=40
     python main.py train --no-report
     python main.py evaluate --run baseline
-    python main.py report --run baseline
+    python main.py report --run reports/baseline    # a name or a path to it, either way
     python main.py sweep logmel crnn --set train.epochs=40
     python main.py summary
     python main.py compare baseline logmel crnn
@@ -111,7 +111,8 @@ def build_parser() -> argparse.ArgumentParser:
     sweep.set_defaults(func=cmd_sweep)
 
     summary = subparsers.add_parser("summary", help="one comparison page over several runs")
-    summary.add_argument("runs", nargs="*", help="run names; default is every run under reports/")
+    summary.add_argument("runs", nargs="*", metavar="RUN",
+                         help="run names or paths; default is every run under reports/")
     summary.add_argument("--out", default=pipeline.SUMMARY_PATH)
     summary.set_defaults(func=cmd_summary)
 
@@ -122,17 +123,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     evaluate = subparsers.add_parser("evaluate", help="test-set metrics + SNR sweep for a trained run")
     _add_common(evaluate)
-    evaluate.add_argument("--run", required=True, help="run name under checkpoints/")
+    evaluate.add_argument("--run", required=True, metavar="RUN",
+                          help="run name, or any path inside it (reports/<name>, checkpoints/<name>/best.pt)")
     evaluate.add_argument("--device", default=None, choices=["auto", "cuda", "mps", "cpu"])
     evaluate.add_argument("--no-report", action="store_true")
     evaluate.set_defaults(func=cmd_evaluate)
 
     report = subparsers.add_parser("report", help="rebuild reports/<run>/report.html from existing artifacts")
-    report.add_argument("--run", required=True)
+    report.add_argument("--run", required=True, metavar="RUN",
+                        help="run name, or any path inside it (reports/<name>, reports/<name>/report.html)")
     report.set_defaults(func=cmd_report)
 
     compare = subparsers.add_parser("compare", help="overlay validation curves from several runs")
-    compare.add_argument("runs", nargs="+")
+    compare.add_argument("runs", nargs="+", metavar="RUN", help="run names or paths")
     compare.add_argument("--out", default="reports/comparison.png")
     compare.set_defaults(func=cmd_compare)
 

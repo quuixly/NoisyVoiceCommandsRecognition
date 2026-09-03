@@ -17,13 +17,50 @@ from pathlib import Path
 
 from src.config import Config
 from src.data.manifest import MANIFEST_PATH
-from src.training.trainer import REPORTS_DIR, run_dirs
+from src.training.trainer import CHECKPOINTS_DIR, REPORTS_DIR, run_dirs
 
 logger = logging.getLogger(__name__)
 
 EXPERIMENTS_DIR = Path("configs/experiments")
 SWEEP_LOG_DIR = REPORTS_DIR / "sweep_logs"
 SUMMARY_PATH = REPORTS_DIR / "summary.html"
+
+# Left out of an unfiltered sweep, still runnable by name: smoke exists to be fast
+# rather than to be compared against anything. Anything here that changes `data` or
+# `split` would also re-prepare the manifest mid-sweep and land on the summary page as
+# a non-comparable run, which is the other reason to skip a config by default.
+SWEEP_SKIP = {"smoke"}
+
+
+def resolve_run(value: str | Path) -> str:
+    """A run name from whatever the shell produced. `report --run fullcheck` still
+    works, and so does anything tab-completion hands you: `reports/fullcheck`,
+    `reports/fullcheck/`, `reports/fullcheck/report.html`, `checkpoints/fullcheck/best.pt`.
+
+    A run is a name, not a location — `checkpoints/<name>/` and `reports/<name>/` are
+    derived from it — so a path that points somewhere else is an error rather than a
+    silent write into the wrong directory.
+    """
+    text = str(value).rstrip("/\\")
+    if not text:
+        raise ValueError("Empty run name")
+
+    path = Path(text)
+    if path.parent == Path("."):
+        return text  # a bare name: never touch the filesystem to interpret it
+
+    if path.is_file():
+        path = path.parent
+    if not path.is_dir():
+        raise FileNotFoundError(f"No run directory at {text}")
+
+    parent = path.resolve().parent
+    if parent not in {CHECKPOINTS_DIR.resolve(), REPORTS_DIR.resolve()}:
+        raise ValueError(
+            f"{text!r} is not a run directory: a run lives in {CHECKPOINTS_DIR}/<name> "
+            f"and {REPORTS_DIR}/<name>, not under {parent}"
+        )
+    return path.resolve().name
 
 
 def prepare(config: Config, manifest_path: Path = MANIFEST_PATH) -> None:
@@ -52,6 +89,7 @@ def evaluate(
 ) -> dict:
     from src.evaluation import evaluate_run
 
+    run_name = resolve_run(run_name)
     metrics = evaluate_run(run_name, device_name=device_name, manifest_path=manifest_path)
     if report:
         build_report(run_name, errors=error_figure(run_name, manifest_path, device_name))
@@ -66,6 +104,7 @@ def error_figure(run_name: str, manifest_path: Path, device_name: str | None) ->
     from src.evaluation import load_run, worst_errors
     from src.visualization.audio import plot_examples
 
+    run_name = resolve_run(run_name)
     model, config, _, device = load_run(run_name, device_name)
     dataset = SpeechCommandsDataset(config, "test", rows=read_manifest(manifest_path), augment=False)
     examples = worst_errors(run_name, config, model, device, dataset)
@@ -116,7 +155,7 @@ def summary(run_names: list[str] | None = None, out_path: Path = SUMMARY_PATH) -
     from src.visualization.charts import plot_run_comparison, plot_snr_comparison
     from src.visualization.summary import build_summary, collect_runs
 
-    runs = collect_runs(REPORTS_DIR, run_names or None)
+    runs = collect_runs(REPORTS_DIR, [resolve_run(name) for name in run_names] if run_names else None)
     if not runs:
         raise FileNotFoundError(
             f"No runs with both config.yaml and history.csv under {REPORTS_DIR} — train something first"
@@ -144,7 +183,7 @@ def compare(run_names: list[str], out_path: Path) -> Path:
     from src.visualization.charts import plot_run_comparison
 
     runs = {}
-    for name in run_names:
+    for name in map(resolve_run, run_names):
         history = REPORTS_DIR / name / "history.csv"
         if not history.exists():
             raise FileNotFoundError(f"No history for run {name!r} at {history}")
@@ -199,6 +238,7 @@ def build_report(run_name: str, config: Config | None = None, errors: Path | Non
     from src.visualization.report import build_report as render_report
     from src.visualization.report import load_metrics
 
+    run_name = resolve_run(run_name)
     _, report_dir = run_dirs(run_name)
     config_path = report_dir / "config.yaml"
     if config is not None:
@@ -236,16 +276,17 @@ def build_report(run_name: str, config: Config | None = None, errors: Path | Non
 
 
 def sweep_names(names: list[str], experiments_dir: Path = EXPERIMENTS_DIR) -> list[str]:
-    """Which experiments a sweep covers. Explicit names win; otherwise every config in
-    `experiments_dir` except smoke — which exists to be fast rather than to be compared
-    against anything — plus `baseline`, the defaults with no experiment file, so an
-    unfiltered sweep always has a control."""
+    """Which experiments a sweep covers. Explicit names win — including the skipped
+    ones, which are skipped by default rather than forbidden. Otherwise: every config
+    in `experiments_dir` minus SWEEP_SKIP, and `baseline` (the defaults, no experiment
+    file) only when no baseline.yaml exists, so the control is in every sweep exactly
+    once."""
     if names:
         return list(names)
-    found = sorted(p.stem for p in Path(experiments_dir).glob("*.yaml") if p.stem != "smoke")
+    found = sorted(p.stem for p in Path(experiments_dir).glob("*.yaml") if p.stem not in SWEEP_SKIP)
     if not found:
         raise FileNotFoundError(f"No experiments found in {experiments_dir}")
-    return ["baseline", *found]
+    return found if "baseline" in found else ["baseline", *found]
 
 
 def sweep(

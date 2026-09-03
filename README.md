@@ -45,7 +45,7 @@ uv run python main.py summary baseline logmel     # or just these two
 **Run a whole batch of experiments unattended.**
 
 ```bash
-uv run python main.py sweep                          # every configs/experiments/*.yaml + the defaults
+uv run python main.py sweep                          # every configs/experiments/*.yaml except smoke
 uv run python main.py sweep --set train.epochs=40    # same sweep, 40 epochs each
 uv run python main.py sweep logmel crnn              # only these
 ```
@@ -81,6 +81,19 @@ Every command except `report`, `summary` and `compare` accepts `-c <experiment.y
 repeatable `--set key.path=value`. `sweep` takes `--set` too and forwards it to every
 experiment.
 
+Anywhere a run is named, a path to it works as well — so tab completion is enough and you
+never have to retype a name:
+
+```bash
+uv run python main.py report --run baseline
+uv run python main.py report --run reports/baseline            # same run
+uv run python main.py evaluate --run checkpoints/baseline/best.pt
+uv run python main.py summary reports/baseline reports/crnn
+```
+
+A path that isn't a run directory is refused rather than guessed at: a run is a name that
+owns `checkpoints/<name>/` and `reports/<name>/`, not a free-floating location.
+
 `main.py run` skips preparation when the manifest on disk was already built from the same
 `data` and `split` settings, and re-prepares when they differ — so changing
 `data.max_per_command` or `split.by` can't leave you training against the previous corpus.
@@ -99,9 +112,26 @@ uv run python main.py train --set train.lr=1e-3 --set model.channels=[64,128,256
 uv run python main.py train -c configs/experiments/logmel.yaml --set train.run_name=logmel
 ```
 
-Shipped experiments: `logmel.yaml` (log-mel front end instead of MFCC), `crnn.yaml`
-(Conv + BiGRU), `smoke.yaml` (60 clips per command, 2 epochs — a wiring check that runs
-in seconds).
+### Shipped experiments
+
+Every file in `configs/experiments/` is one question, named after the run it produces.
+Parameter counts are measured, not estimated.
+
+| Experiment          | The question it answers                                                        | Params  |
+| ------------------- | ------------------------------------------------------------------------------ | ------- |
+| `baseline.yaml`     | the control: MFCC-20 + deltas into the conv stack, defaults everywhere else     | 186,598 |
+| `crnn.yaml`         | does explicit temporal modelling (Conv + BiGRU) beat a global average pool?      | 243,174 |
+| `logreg.yaml`       | the floor — how much of the accuracy is the front end rather than the model?     |  36,366 |
+| `logmel.yaml`       | log-mel instead of MFCC, same model: which front end wins?                       | 186,022 |
+| `mfcc13.yaml`       | do coefficients c13–c19 carry anything? (same size, cheaper features on-device)  | 186,598 |
+| `no_augment.yaml`   | augmentation ablation — the whole case for it is the gap at low SNR              | 186,598 |
+| `heavy_augment.yaml`| 2–4 transforms per clip: does robustness keep improving, or does clean accuracy pay? | 186,598 |
+| `tiny_cnn.yaml`     | the mobile candidate — how much accuracy does ~10% of the parameters cost?        |  19,350 |
+| `wide_cnn.yaml`     | is the baseline capacity-limited at all? (deliberately over the device budget)    | 741,830 |
+| `smoke.yaml`        | wiring check: 60 clips per command, 2 epochs, seconds not hours                   | 186,598 |
+
+`smoke` is left out of an unfiltered sweep — it is a wiring check, not a comparison —
+and still runs when named: `main.py sweep smoke`.
 
 A typo in a config key is an error, not a silent no-op:
 
@@ -143,7 +173,7 @@ Then `main.py sweep` picks it up automatically along with everything else in tha
 directory:
 
 ```bash
-uv run python main.py sweep                              # baseline + every experiment file, then the summary page
+uv run python main.py sweep                              # every experiment file, then the summary page
 uv run python main.py sweep --set train.epochs=40        # same, but force 40 epochs everywhere
 uv run python main.py sweep --set train.batch_size=128
 uv run python main.py sweep logmel crnn                  # only these two
@@ -203,7 +233,7 @@ data/<command>/*.wav                       (main.py prepare: DatasetLoader)
 `main.py run` is that whole column in one command; the individual steps exist for when you
 want to redo just one of them.
 
-**Augmentation is on-the-fly.** There is no `augmented/` directory any more. Each
+**Augmentation is on-the-fly.** There is no `augmented/` directory. Each
 training item gets a fresh random transform chain every time it is drawn, so the model
 sees the whole ~23K-clip corpus under endlessly varying distortion instead of a fixed
 cross-product of variants over a small subset of it. Measured cost: ~4 ms per clip, ~13 s
@@ -245,7 +275,7 @@ validation curves, and overlaid noise-robustness curves, with its figures in
 uv run pytest tests -q
 ```
 
-37 tests over a synthetic 12-speaker corpus: config merging and override typing, speaker
+42 tests over a synthetic 12-speaker corpus: config merging and override typing, speaker
 leakage, feature shape and invariances, every model against every front end, the
 prepare-staleness check, the full `main.py run` chain, and the summary page's corpus-mismatch
 warning. About a minute, no dataset required.
@@ -265,7 +295,8 @@ will fix it.
 ```
 configs/
   default.yaml          every knob, documented inline
-  experiments/          sparse overrides: logmel, crnn, smoke
+  experiments/          one file per question: baseline, crnn, logreg, logmel,
+                        mfcc13, no_augment, heavy_augment, tiny_cnn, wide_cnn, smoke
 main.py                 the only entry point: argument parsing and dispatch
 src/
   config.py             nested dataclasses, YAML deep-merge, --set overrides

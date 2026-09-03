@@ -121,3 +121,43 @@ def test_run_metrics_land_in_the_manifest_label_order(experiment):
     _, report_dir = run_dirs("labels")
     metrics = json.loads((report_dir / "test_metrics.json").read_text())
     assert metrics["labels"] == ["up", "down", "left", "right", "stop", "go"]
+
+
+def test_run_accepts_a_name_or_any_path_inside_the_run(experiment):
+    """Tab completion produces paths, not names. Every form below names one run."""
+    from src.pipeline import resolve_run
+
+    _run(experiment, "pathy")
+    ckpt_dir, report_dir = run_dirs("pathy")
+    for value in (
+        "pathy",
+        report_dir,
+        f"{report_dir}/",
+        report_dir / "report.html",
+        ckpt_dir / "best.pt",
+    ):
+        assert resolve_run(value) == "pathy", value
+
+
+def test_a_path_outside_a_run_directory_is_rejected(experiment, tmp_path):
+    """A run is a name, not a location: `checkpoints/<name>` and `reports/<name>` are
+    derived from it, so accepting a foreign directory would write somewhere else."""
+    import pytest
+
+    from src.pipeline import resolve_run
+
+    (tmp_path / "elsewhere" / "pathy").mkdir(parents=True)
+    with pytest.raises(ValueError, match="not a run directory"):
+        resolve_run(tmp_path / "elsewhere" / "pathy")
+    with pytest.raises(FileNotFoundError, match="No run directory"):
+        resolve_run("reports/never_trained")
+
+
+def test_report_and_summary_take_paths(experiment, tmp_path):
+    _run(experiment, "pathy")
+    _, report_dir = run_dirs("pathy")
+
+    assert main(["report", "--run", str(report_dir)]) == 0
+    out = tmp_path / "summary.html"
+    assert main(["summary", str(report_dir), "--out", str(out)]) == 0
+    assert "pathy" in out.read_text()
