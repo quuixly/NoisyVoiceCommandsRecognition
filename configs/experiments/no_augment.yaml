@@ -1,0 +1,5 @@
+# Augmentation ablation: train on clean audio only, evaluate on the same SNR sweep as
+# everything else. The gap against the baseline at low SNR is the entire case for
+# on-the-fly augmentation, and it cannot be argued from clean accuracy alone.
+augment:
+  enabled: false

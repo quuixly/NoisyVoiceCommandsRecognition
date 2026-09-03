@@ -1,0 +1,13 @@
+# The control every other experiment is measured against: MFCC-20 + deltas into the
+# conv stack, defaults everywhere else. Nothing here changes configs/default.yaml —
+# it is written out in full so the baseline is a file in the sweep like the rest,
+# not an implicit "no config" case.
+# 186,598 parameters.
+features:
+  type: mfcc
+  n_mfcc: 20
+  deltas: true
+model:
+  name: baseline_cnn
+  channels: [32, 64, 96, 128]
+  dropout: 0.3

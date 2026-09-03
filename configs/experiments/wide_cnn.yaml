@@ -1,0 +1,9 @@
+# The other end of the capacity question: double the conv widths and add no other
+# change. If this does not beat the baseline, the baseline is not capacity-limited and
+# the tiny_cnn direction is the one worth pursuing.
+# 741,830 parameters - deliberately over the on-device budget: this is a capacity
+# probe for the writeup, not a shipping candidate.
+model:
+  name: baseline_cnn
+  channels: [64, 128, 192, 256]
+  dropout: 0.4

@@ -1,0 +1,10 @@
+# The mobile candidate: the narrowest conv stack still worth shipping, aimed at the
+# Phase 3 budget (<= 1 MB on disk, < 10 ms per window). Accuracy is expected to drop
+# against the baseline; the experiment is about how much it costs per parameter saved.
+# 19,350 parameters, ~10% of the baseline.
+features:
+  n_mfcc: 13
+model:
+  name: baseline_cnn
+  channels: [16, 32, 48]
+  dropout: 0.2

@@ -1,0 +1,11 @@
+# The classic 13-coefficient MFCC front end. Same model, a third fewer input rows than
+# the 20-coefficient baseline. The question it answers is whether c13-c19 carry anything
+# the classifier actually uses.
+#
+# Parameter count is unchanged (186,598): global average pooling makes the head
+# independent of the row count, so what this saves is feature-extraction work per window
+# on the device, not model size.
+features:
+  type: mfcc
+  n_mfcc: 13
+  deltas: true

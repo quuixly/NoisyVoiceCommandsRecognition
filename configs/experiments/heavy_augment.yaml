@@ -1,0 +1,13 @@
+# More distortion per clip: 2–4 transforms instead of 1–2, and a louder noise range.
+# Tests whether robustness keeps improving with augmentation strength or whether the
+# training distribution drifts far enough from real speech to cost clean accuracy.
+augment:
+  min_k: 2
+  max_k: 4
+  transforms:
+    gaussian_noise: {enabled: true, min_amplitude: 0.01, max_amplitude: 0.06}
+    clipping:       {enabled: true, min_percentile_threshold: 0, max_percentile_threshold: 10}
+train:
+  # A harder training distribution needs longer before early stopping is meaningful.
+  epochs: 40
+  patience: 10
